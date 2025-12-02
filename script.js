@@ -1,10 +1,9 @@
 // script.js
-// Core wallet logic, physics-style shredder, FLIP reflow & advanced interactions.
+// Version remaniée : architecture simplifiée, animations fluides, shredder lisible & drag & drop stable.
 
 const state = {
   cards: [],
   filteredIds: null,
-  viewMode: "grid",
   isTouch: "ontouchstart" in window || navigator.maxTouchPoints > 0,
   dragging: null,
   rafScrollScheduled: false,
@@ -22,7 +21,10 @@ const $modalPreview = document.getElementById("modal-card-preview");
 const $qrCanvas = document.getElementById("qr-canvas");
 const modalCloseEls = document.querySelectorAll("[data-modal-close]");
 
-// Utilities
+// ---------------------------------------------------------------------------
+// Utilitaires
+// ---------------------------------------------------------------------------
+
 const rand = (min, max) => Math.random() * (max - min) + min;
 const sample = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
@@ -84,7 +86,10 @@ function vibrate(pattern) {
   }
 }
 
-// Data generation
+// ---------------------------------------------------------------------------
+// Génération de données
+// ---------------------------------------------------------------------------
+
 const firstNames = ["Alex", "Nina", "Louis", "Camille", "Sara", "Adam", "Léa", "Ilan"];
 const lastNames = ["Martin", "Durand", "Bernard", "Petit", "Roux", "Lefèvre", "Moreau", "Fournier"];
 const cities = ["Paris", "Lyon", "Marseille", "Nantes", "Bordeaux", "Lille"];
@@ -146,7 +151,10 @@ function formatDate(d) {
   });
 }
 
-// FLIP utilities
+// ---------------------------------------------------------------------------
+// FLIP helpers (avant / après layout pour reflow fluide)
+// ---------------------------------------------------------------------------
+
 function getCardRects() {
   const rects = new Map();
   $grid.querySelectorAll(".wallet-card").forEach((el) => {
@@ -174,7 +182,10 @@ function animateReflow(prevRects) {
   });
 }
 
-// Rendering
+// ---------------------------------------------------------------------------
+// Rendu d’une carte
+// ---------------------------------------------------------------------------
+
 function renderCard(card) {
   const el = document.createElement("article");
   el.className = `wallet-card card-type-${card.type}`;
@@ -256,60 +267,62 @@ function renderAllCards() {
   $grid.appendChild(frag);
 }
 
-// Shredder effect
+// ---------------------------------------------------------------------------
+// Effet SHREDDER (broyage en bandes) + reflow FLIP
+// ---------------------------------------------------------------------------
+// Principe :
+// - On clone visuellement la carte en plusieurs "bandes" verticales via clip-path.
+// - On fait tomber ces bandes avec rotation 3D.
+// - On supprime ensuite la carte du DOM et on anime le reflow des autres cartes.
+
 function handleDeleteCard(card, cardEl) {
   if (state.audio) {
     state.audio.playShred();
   }
   vibrate([10, 20, 40]);
 
-  const idStr = String(card.id);
   const prevRects = getCardRects();
 
+  // Préparation du conteneur de bandes
   const rect = cardEl.getBoundingClientRect();
-  const cloneCanvas = document.createElement("canvas");
-  cloneCanvas.width = rect.width * window.devicePixelRatio;
-  cloneCanvas.height = rect.height * window.devicePixelRatio;
-  const ctx = cloneCanvas.getContext("2d");
-  ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
-
-  const html2canvasLike = () => {
-    ctx.fillStyle = "#1f2933";
-    ctx.fillRect(0, 0, rect.width, rect.height);
-  };
-  html2canvasLike();
-
   const stripsContainer = document.createElement("div");
   stripsContainer.className = "card-strip-container";
   const stripCount = 12;
-  const stripWidth = rect.width / stripCount;
-
   for (let i = 0; i < stripCount; i++) {
-    const strip = document.createElement("div");
-    strip.className = "card-strip";
-    const x = -i * stripWidth;
-    strip.style.left = `${(i * 100) / stripCount}%`;
-    strip.style.width = `${100 / stripCount + 0.5}%`;
-    strip.style.backgroundImage = `url(${cloneCanvas.toDataURL()})`;
-    strip.style.backgroundPosition = `${x}px 0`;
+    // On clone la carte pour garder le contenu réel, puis on découpe en bande avec clip-path.
+    const slice = cardEl.cloneNode(true);
+    slice.classList.add("card-strip");
+    const startPct = (i / stripCount) * 100;
+    const endPct = ((i + 1) / stripCount) * 100;
+
+    slice.style.clipPath = `polygon(${startPct}% 0, ${endPct}% 0, ${endPct}% 100%, ${startPct}% 100%)`;
+    slice.style.position = "absolute";
+    slice.style.inset = "0";
+    slice.style.margin = "0";
+    slice.style.pointerEvents = "none";
+
     const delay = i * 0.015;
     const fallDuration = 0.6 + rand(-0.12, 0.12);
     const rotate = rand(-28, 28);
     const translateX = rand(-18, 18);
     const translateY = rect.height + rand(40, 90);
 
-    strip.style.transition = `
+    slice.style.transition = `
       transform ${fallDuration}s cubic-bezier(0.16, 0.9, 0.3, 1.1) ${delay}s,
       opacity ${fallDuration}s ease-out ${delay}s
     `;
     requestAnimationFrame(() => {
-      strip.style.transform = `translate3d(${translateX}px, ${translateY}px, 0) rotate3d(1, 0, 0, ${rotate}deg)`;
-      strip.style.opacity = "0";
+      slice.style.transform = `translate3d(${translateX}px, ${translateY}px, 0) rotate3d(1, 0, 0, ${rotate}deg)`;
+      slice.style.opacity = "0";
     });
-    stripsContainer.appendChild(strip);
+    stripsContainer.appendChild(slice);
   }
 
-  cardEl.style.opacity = "0";
+  // On masque la carte d’origine pour ne garder que les bandes.
+  const originalContent = cardEl.querySelector(".wallet-card-inner");
+  if (originalContent) {
+    originalContent.style.opacity = "0";
+  }
   cardEl.appendChild(stripsContainer);
 
   setTimeout(() => {
@@ -322,7 +335,10 @@ function handleDeleteCard(card, cardEl) {
   }, 200);
 }
 
-// Modal + QR (simple pseudo-code)
+// ---------------------------------------------------------------------------
+// Modale + pseudo QR
+// ---------------------------------------------------------------------------
+
 function openModal(card, cardEl) {
   if (state.audio) state.audio.playClick();
   vibrate(20);
@@ -378,7 +394,10 @@ function drawPseudoQR(seed) {
   }
 }
 
-// Parallax / gyroscopic
+// ---------------------------------------------------------------------------
+// Parallaxe / effet holographique (souris + optionnel device orientation)
+// ---------------------------------------------------------------------------
+
 function setupParallaxForCard(cardEl) {
   const maxTilt = 10;
 
@@ -403,10 +422,13 @@ function setupParallaxForCard(cardEl) {
     cardEl.addEventListener("mouseleave", () => {
       cardEl.style.transform = "";
       cardEl.classList.remove("is-gyroscopic");
+      cardEl.style.removeProperty("--glare-x");
+      cardEl.style.removeProperty("--glare-y");
     });
   }
 }
 
+// Gyro seulement si dispo, mais on reste léger.
 if (window.DeviceOrientationEvent) {
   window.addEventListener(
     "deviceorientation",
@@ -419,7 +441,7 @@ if (window.DeviceOrientationEvent) {
         const maxTilt = 10;
         const tiltX = (relY - 0.5) * -maxTilt;
         const tiltY = (relX - 0.5) * maxTilt;
-        cardEl.style.transform = `rotateX(${tiltX}deg) rotateY(${tiltY}deg) translateY(-2px)`;
+        cardEl.style.transform = `rotateX(${tiltX}deg) rotateY(${tiltY}deg) translateY(-1px)`;
         cardEl.style.setProperty("--glare-x", `${relX * 100}%`);
         cardEl.style.setProperty("--glare-y", `${relY * 100}%`);
         cardEl.classList.add("is-gyroscopic");
@@ -429,7 +451,10 @@ if (window.DeviceOrientationEvent) {
   );
 }
 
-// Drag & drop reordering (grid, FLIP-based)
+// ---------------------------------------------------------------------------
+// Drag & drop avec re-order fluide (sans re-render brutal)
+// ---------------------------------------------------------------------------
+
 function setupDragForCard(cardEl, card) {
   cardEl.style.touchAction = "none";
 
@@ -444,30 +469,50 @@ function setupDragForCard(cardEl, card) {
     const offsetX = startX - rect.left;
     const offsetY = startY - rect.top;
 
-    const ghost = cardEl.cloneNode(true);
-    ghost.classList.add("is-dragging");
-    ghost.style.position = "fixed";
-    ghost.style.left = `${rect.left}px`;
-    ghost.style.top = `${rect.top}px`;
-    ghost.style.width = `${rect.width}px`;
-    ghost.style.height = `${rect.height}px`;
-    ghost.style.margin = "0";
-    ghost.style.pointerEvents = "none";
-    ghost.style.transform = "translate3d(0,0,0)";
-    document.body.appendChild(ghost);
+    const placeholder = document.createElement("div");
+    placeholder.className = "wallet-card-placeholder";
+    placeholder.style.height = `${rect.height}px`;
+    placeholder.style.borderRadius = window.getComputedStyle(cardEl).borderRadius;
 
-    cardEl.classList.add("drag-origin");
+    const prevRects = getCardRects();
+
+    cardEl.parentElement.insertBefore(placeholder, cardEl.nextSibling);
+
+    const originalStyle = {
+      position: cardEl.style.position,
+      left: cardEl.style.left,
+      top: cardEl.style.top,
+      width: cardEl.style.width,
+      zIndex: cardEl.style.zIndex,
+      pointerEvents: cardEl.style.pointerEvents,
+      margin: cardEl.style.margin,
+      transform: cardEl.style.transform,
+    };
+
+    cardEl.classList.add("is-dragging");
+    cardEl.style.position = "fixed";
+    cardEl.style.left = `${rect.left}px`;
+    cardEl.style.top = `${rect.top}px`;
+    cardEl.style.width = `${rect.width}px`;
+    cardEl.style.margin = "0";
+    cardEl.style.pointerEvents = "none";
+    cardEl.style.transform = "translate3d(0,0,0)";
+    cardEl.style.zIndex = "60";
 
     state.dragging = {
       card,
-      originEl: cardEl,
-      ghost,
+      cardEl,
+      placeholder,
       offsetX,
       offsetY,
+      originalStyle,
+      startIndex: state.cards.findIndex((c) => c.id === card.id),
     };
 
     if (state.audio) state.audio.playWoosh();
     vibrate(8);
+
+    animateReflow(prevRects);
 
     window.addEventListener("pointermove", onPointerMove, { passive: false });
     window.addEventListener("pointerup", onPointerUp, { once: true });
@@ -476,51 +521,66 @@ function setupDragForCard(cardEl, card) {
   const onPointerMove = (e) => {
     if (!state.dragging) return;
     e.preventDefault();
-    const { ghost, offsetX, offsetY } = state.dragging;
+    const { cardEl, placeholder, offsetX, offsetY } = state.dragging;
     const x = e.clientX - offsetX;
     const y = e.clientY - offsetY;
-    ghost.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+    cardEl.style.transform = `translate3d(${x}px, ${y}px, 0)`;
 
-    const prevRects = getCardRects();
     const overEl = document.elementFromPoint(e.clientX, e.clientY);
-    const targetCard = overEl && overEl.closest(".wallet-card");
-    if (!targetCard || targetCard === state.dragging.originEl) return;
+    const overCard = overEl && overEl.closest(".wallet-card");
+    if (!overCard || overCard === cardEl) return;
 
-    const draggingIndex = state.cards.findIndex((c) => c.id === state.dragging.card.id);
-    const targetIndex = state.cards.findIndex(
-      (c) => c.id === Number(targetCard.dataset.id)
+    const allCards = Array.from($grid.querySelectorAll(".wallet-card")).filter(
+      (el) => el !== cardEl
     );
-    if (draggingIndex === -1 || targetIndex === -1) return;
+    const overIndex = allCards.indexOf(overCard);
+    if (overIndex === -1) return;
 
-    const [moved] = state.cards.splice(draggingIndex, 1);
-    state.cards.splice(targetIndex, 0, moved);
-    renderAllCards();
-    animateReflow(prevRects);
+    if (overCard.compareDocumentPosition(placeholder) & Node.DOCUMENT_POSITION_FOLLOWING) {
+      $grid.insertBefore(placeholder, overCard);
+    } else {
+      $grid.insertBefore(placeholder, overCard.nextSibling);
+    }
   };
 
   const onPointerUp = () => {
     window.removeEventListener("pointermove", onPointerMove);
     if (!state.dragging) return;
-    const { ghost, originEl } = state.dragging;
-    const destRect = originEl.getBoundingClientRect();
-    const ghostRect = ghost.getBoundingClientRect();
-    const dx = destRect.left - ghostRect.left;
-    const dy = destRect.top - ghostRect.top;
-    ghost.style.transition =
-      "transform 160ms cubic-bezier(0.22, 0.9, 0.24, 1), opacity 160ms ease-out";
-    ghost.style.transform += ` translate3d(${dx}px, ${dy}px, 0)`;
-    ghost.style.opacity = "0";
-    setTimeout(() => {
-      ghost.remove();
-    }, 180);
-    originEl.classList.remove("drag-origin");
+    const { cardEl, placeholder, originalStyle, card, startIndex } = state.dragging;
+
+    const prevRects = getCardRects();
+
+    // On insère la carte à la nouvelle position
+    $grid.insertBefore(cardEl, placeholder);
+    placeholder.remove();
+
+    // Mise à jour de l’ordre dans le state
+    const newOrderEls = Array.from($grid.querySelectorAll(".wallet-card"));
+    state.cards.sort((a, b) => {
+      const elA = newOrderEls.find((el) => Number(el.dataset.id) === a.id);
+      const elB = newOrderEls.find((el) => Number(el.dataset.id) === b.id);
+      return newOrderEls.indexOf(elA) - newOrderEls.indexOf(elB);
+    });
+
+    // Retour à la grille avec animation FLIP
+    cardEl.classList.remove("is-dragging");
+    Object.assign(cardEl.style, originalStyle);
+    animateReflow(prevRects);
+
+    if (state.audio && startIndex !== state.cards.findIndex((c) => c.id === card.id)) {
+      state.audio.playClick();
+    }
+
     state.dragging = null;
   };
 
   cardEl.addEventListener("pointerdown", onPointerDown);
 }
 
-// Search + staggered filtering
+// ---------------------------------------------------------------------------
+// Barre de recherche + filtrage staggered
+// ---------------------------------------------------------------------------
+
 function applySearchFilter(query) {
   const q = query.trim().toLowerCase();
   if (!q) {
@@ -556,7 +616,10 @@ function applySearchFilter(query) {
   animateReflow(prevRects);
 }
 
-// Stack view on scroll
+// ---------------------------------------------------------------------------
+// Effet "pile" au scroll
+// ---------------------------------------------------------------------------
+
 function handleScroll() {
   if (state.rafScrollScheduled) return;
   state.rafScrollScheduled = true;
@@ -585,21 +648,23 @@ function handleScroll() {
   });
 }
 
-// View toggle (grid/pile visual only)
+// ---------------------------------------------------------------------------
+// Toggle de vue (scroll vers pile / scroll vers top)
+// ---------------------------------------------------------------------------
+
 if ($viewToggle) {
   $viewToggle.addEventListener("click", () => {
-    state.viewMode = state.viewMode === "grid" ? "stack" : "grid";
     if (state.audio) state.audio.playClick();
     vibrate(12);
-    if (state.viewMode === "stack") {
-      window.scrollTo({ top: 40, behavior: "smooth" });
-    } else {
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    }
+    const target = window.scrollY < 40 ? 200 : 0;
+    window.scrollTo({ top: target, behavior: "smooth" });
   });
 }
 
-// Init
+// ---------------------------------------------------------------------------
+// Initialisation
+// ---------------------------------------------------------------------------
+
 function init() {
   state.audio = initAudio();
   const cards = [];
